@@ -106,22 +106,18 @@ class Search():
         Constructs SQL-alchemy queryset via JSON.
         :return: SQL-alchemy queryset.
         """
-        # expressions = []
-        error_fields = []
+        data_query_set = self.session.query(*self.model_classes)
 
-        if isinstance(self.filter_by, (list, tuple, set)):
-            self.filter_by = {'and': [query_obj for query_obj in self.filter_by]}
-
-        and_expressions, and_error_fields = self.__eval_criteria__(self.filter_by.get('and', []))
-        or_expressions, or_error_fields = self.__eval_criteria__(self.filter_by.get('or', []))
-        error_fields.extend(and_error_fields)
-        error_fields.extend(or_error_fields)
-
-        if len(error_fields) > 0:
-            ExceptionBuilder(SqlAlchemyException).error(ErrorCode.INVALID_FIELD, *error_fields).throw()
+        if isinstance(self.filter_by, list):
+            data_query_set = data_query_set.filter(self.__build_expressions__(self.filter_by))
+        else:
+            or_filter = self.filter_by.get('or', [])
+            and_filter = self.filter_by.get('and', [])
+            or_expression = self.__build_expressions__({'or': or_filter})
+            and_expression = self.__build_expressions__({'and': and_filter})
+            data_query_set = data_query_set.filter(or_(or_expression), and_(and_expression))
 
         ordering_criteria = self.order_by or []
-        data_query_set = self.session.query(*self.model_classes).filter(or_(*or_expressions), and_(*and_expressions))
 
         order_by_expressions = []
         for ordering_criterion in ordering_criteria:
@@ -135,3 +131,32 @@ class Search():
 
         data_query_set = data_query_set.order_by(*order_by_expressions)
         return data_query_set
+
+    def __build_expressions__(self, filter_by):
+        if isinstance(filter_by, (list, tuple, set)):
+            filter_by = {'and': [query_obj for query_obj in filter_by]}
+
+        logical_operators = {
+            'and': (self.__build_sql_sequence__, and_),
+            'or': (self.__build_sql_sequence__, or_)
+        }
+
+        operator = list(filter_by.keys())[0]
+
+        if operator in logical_operators:
+            builder, func = logical_operators[operator]
+            return builder(filter_by[operator], func)
+        else:
+            expressions, error_fields = self.__eval_criteria__(filter_by)
+            if len(error_fields) > 0:
+                ExceptionBuilder(SqlAlchemyException).error(ErrorCode.INVALID_FIELD, *error_fields).throw()
+
+            return expressions
+
+    def __build_sql_sequence__(self, node, func):
+        subqueries = []
+        for value in node:
+            subquery = self.__build_expressions__(value)
+            subqueries.extend(subquery) if isinstance(subquery, list) else subqueries.append(subquery)
+
+        return func(*subqueries)
