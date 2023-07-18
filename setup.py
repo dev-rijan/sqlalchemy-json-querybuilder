@@ -6,7 +6,7 @@ from setuptools import setup, find_packages
 from src.conf.settings import VERSION
 
 def curr_version():
-    py_repo = os.environ['PY_REPO']
+    py_repo = os.environ.get('PY_REPO', 'pypi')
     version = VERSION[py_repo]
     print('[SETUP] Preparing sqlalchemy_json_querybuilder-{version} to upload to {py_repo}'.format(
         version=version, py_repo=py_repo
